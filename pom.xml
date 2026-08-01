@@ -5,7 +5,7 @@
 
     <groupId>dev.floverex</groupId>
     <artifactId>eloadoa-auction-bridge</artifactId>
-    <version>1.0.0</version>
+    <version>1.1.0</version>
     <name>EloadoaAuctionBridge</name>
     <description>Confirms successful AuctionHouse listings and exposes them to DiscordSRV alerts.</description>
 
@@ -19,6 +19,10 @@
             <id>papermc</id>
             <url>https://repo.papermc.io/repository/maven-public/</url>
         </repository>
+        <repository>
+            <id>Scarsz-Nexus</id>
+            <url>https://nexus.scarsz.me/content/groups/public/</url>
+        </repository>
     </repositories>
 
     <dependencies>
@@ -28,10 +32,18 @@
             <version>1.21.11-R0.1-SNAPSHOT</version>
             <scope>provided</scope>
         </dependency>
+        <!-- Compile-only: used for the optional discord.enabled auction tracker.
+             The real classes come from the DiscordSRV plugin jar at runtime. -->
+        <dependency>
+            <groupId>com.discordsrv</groupId>
+            <artifactId>discordsrv</artifactId>
+            <version>1.28.0</version>
+            <scope>provided</scope>
+        </dependency>
     </dependencies>
 
     <build>
-        <finalName>EloadoaAuctionBridge-1.0.0</finalName>
+        <finalName>EloadoaAuctionBridge-1.1.0</finalName>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

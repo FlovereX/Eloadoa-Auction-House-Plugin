@@ -14,3 +14,20 @@ listing-subcommands:
 extra-confirm-seconds: 1
 
 debug: false
+
+# Optional: have the bridge post its own Discord embed for each confirmed listing
+# (through DiscordSRV's JDA connection) and then edit or delete that same message
+# as the auction is sold, expires, or is cancelled/removed. This requires DiscordSRV
+# to be installed and is an alternative to using AuctionListedEvent in alerts.yml.
+discord:
+  enabled: false
+
+  # Discord channel ID to post auction embeds in.
+  channel-id: "0"
+
+  # How often, in seconds, to check on tracked auctions for a status change.
+  check-interval-seconds: 10
+
+  # How long, in seconds, to leave the final embed (sold/expired/removed) before
+  # deleting it. Use 0 to never delete it automatically.
+  delete-after-seconds: 300

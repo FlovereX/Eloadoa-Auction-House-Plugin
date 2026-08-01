@@ -28,12 +28,16 @@ public final class EloadoaAuctionBridge extends JavaPlugin implements Listener {
     private Method isTheoreticallyOnAuction;
     private Method isExpired;
     private Method isOnWaitingList;
+    private Method isSold;
+    private Method getTimeLeft;
+    private Method getBuyerName;
 
     private Plugin auctionHouse;
     private Set<String> commandLabels;
     private Set<String> listingSubcommands;
     private int extraConfirmSeconds;
     private boolean debug;
+    private DiscordAuctionTracker discordTracker;
 
     @Override
     public void onEnable() {
@@ -69,6 +73,30 @@ public final class EloadoaAuctionBridge extends JavaPlugin implements Listener {
 
         Bukkit.getPluginManager().registerEvents(this, this);
         getLogger().info("Enabled. Successful AuctionHouse listings will fire AuctionListedEvent.");
+
+        if (getConfig().getBoolean("discord.enabled", false)) {
+            try {
+                discordTracker = new DiscordAuctionTracker(this);
+                discordTracker.start();
+                getLogger().info("Discord auction tracking enabled.");
+            } catch (Throwable throwable) {
+                // Broad catch: DiscordSRV/JDA classes are only on the classpath if DiscordSRV
+                // is actually installed, so a missing install surfaces as a LinkageError here
+                // rather than a normal exception. Treat that as this optional feature failing
+                // to start, not as a reason to disable the whole bridge.
+                getLogger().log(Level.SEVERE,
+                        "Failed to start Discord auction tracking. Is DiscordSRV installed and enabled?",
+                        throwable);
+                discordTracker = null;
+            }
+        }
+    }
+
+    @Override
+    public void onDisable() {
+        if (discordTracker != null) {
+            discordTracker.shutdown();
+        }
     }
 
     private void loadAuctionHouseReflection() throws ReflectiveOperationException {
@@ -96,6 +124,9 @@ public final class EloadoaAuctionBridge extends JavaPlugin implements Listener {
         isTheoreticallyOnAuction = noteClass.getMethod("isTheoreticallyOnAuction");
         isExpired = noteClass.getMethod("isExpired");
         isOnWaitingList = noteClass.getMethod("isOnWaitingList");
+        isSold = noteClass.getMethod("isSold");
+        getTimeLeft = noteClass.getMethod("getTimeLeft");
+        getBuyerName = noteClass.getMethod("getBuyerName");
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
@@ -160,7 +191,9 @@ public final class EloadoaAuctionBridge extends JavaPlugin implements Listener {
                     () -> confirmAndFire(sellerName, sellerUuid, noteId),
                     delayTicks
             );
-        } catch (ReflectiveOperationException exception) {
+        } catch (Exception exception) {
+            // Also guards against ClassCastException/NullPointerException if a future
+            // AuctionHouse update changes a method's return type or behavior.
             getLogger().log(Level.WARNING, "Failed to inspect a new AuctionHouse listing.", exception);
         }
     }
@@ -198,7 +231,20 @@ public final class EloadoaAuctionBridge extends JavaPlugin implements Listener {
             ));
 
             debug("Fired AuctionListedEvent for " + noteId);
-        } catch (ReflectiveOperationException exception) {
+
+            if (discordTracker != null) {
+                long timeLeftSeconds = 0;
+                try {
+                    timeLeftSeconds = (long) getTimeLeft.invoke(note);
+                } catch (Exception ignored) {
+                    // Fall back to a 0-second countdown; the next poll will correct it.
+                }
+                discordTracker.trackNewListing(
+                        noteId, sellerName, itemName, item.getAmount(), price, bidAuction, timeLeftSeconds);
+            }
+        } catch (Exception exception) {
+            // Also guards against ClassCastException/NullPointerException if a future
+            // AuctionHouse update changes a method's return type or behavior.
             getLogger().log(Level.WARNING, "Failed to confirm AuctionHouse listing " + noteId, exception);
         }
     }
@@ -210,7 +256,7 @@ public final class EloadoaAuctionBridge extends JavaPlugin implements Listener {
             if (result instanceof List<?> list) {
                 return new ArrayList<>((List<Object>) list);
             }
-        } catch (ReflectiveOperationException exception) {
+        } catch (Exception exception) {
             getLogger().log(Level.WARNING, "Failed to read AuctionHouse listings.", exception);
         }
         return List.of();
@@ -221,7 +267,7 @@ public final class EloadoaAuctionBridge extends JavaPlugin implements Listener {
         for (Object note : getListings(playerUuid)) {
             try {
                 ids.add((UUID) getNoteId.invoke(note));
-            } catch (ReflectiveOperationException exception) {
+            } catch (Exception exception) {
                 getLogger().log(Level.WARNING, "Failed to read an AuctionHouse listing ID.", exception);
             }
         }
@@ -256,5 +302,36 @@ public final class EloadoaAuctionBridge extends JavaPlugin implements Listener {
         if (debug) {
             getLogger().info("[Debug] " + message);
         }
+    }
+
+    // Package-private reflection wrappers used by DiscordAuctionTracker so it never
+    // has to touch the raw Method fields above.
+
+    Object getNoteById(UUID noteId) throws ReflectiveOperationException {
+        return getNote.invoke(null, noteId);
+    }
+
+    boolean isNoteSold(Object note) throws ReflectiveOperationException {
+        return (boolean) isSold.invoke(note);
+    }
+
+    boolean isNoteExpired(Object note) throws ReflectiveOperationException {
+        return (boolean) isExpired.invoke(note);
+    }
+
+    boolean isNoteTheoreticallyOnAuction(Object note) throws ReflectiveOperationException {
+        return (boolean) isTheoreticallyOnAuction.invoke(note);
+    }
+
+    long getNoteTimeLeft(Object note) throws ReflectiveOperationException {
+        return (long) getTimeLeft.invoke(note);
+    }
+
+    double getNotePrice(Object note) throws ReflectiveOperationException {
+        return ((Number) getPrice.invoke(note)).doubleValue();
+    }
+
+    String getNoteBuyerName(Object note) throws ReflectiveOperationException {
+        return (String) getBuyerName.invoke(note);
     }
 }

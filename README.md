@@ -12,6 +12,24 @@ This prevents Discord announcements for rejected listing attempts such as:
 
 > EloadoaAuctionBridge is a compatibility bridge. It does not replace AuctionHouse or DiscordSRV.
 
+## Contents
+
+- [Features](#features)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [DiscordSRV setup](#discordsrv-setup)
+- [Bridge configuration](#bridge-configuration)
+- [Discord auction lifecycle tracking (optional)](#discord-auction-lifecycle-tracking-optional)
+- [How it works](#how-it-works)
+- [Testing](#testing)
+- [Event API](#event-api)
+- [Building locally](#building-locally)
+- [Creating a GitHub Release](#creating-a-github-release)
+- [Development builds](#development-builds)
+- [Compatibility warning](#compatibility-warning)
+- [Troubleshooting](#troubleshooting)
+- [License](#license)
+
 ## Features
 
 - Watches configured AuctionHouse listing commands, including `/ah sell` and `/ah bid`
@@ -22,6 +40,9 @@ This prevents Discord announcements for rejected listing attempts such as:
 - Exposes seller, item, amount, price, auction type, and auction ID to DiscordSRV
 - Supports extra command aliases through `config.yml`
 - Includes optional debug logging
+- Optionally posts its own Discord embed per listing and keeps it updated as the
+  auction is sold, expires, or is cancelled/removed (see
+  [Discord auction lifecycle tracking](#discord-auction-lifecycle-tracking-optional))
 
 ## Requirements
 
@@ -129,6 +150,44 @@ debug: false
 ```
 
 Add any custom AuctionHouse command alias under `command-labels`.
+
+## Discord auction lifecycle tracking (optional)
+
+By default, the bridge only fires `AuctionListedEvent` and lets DiscordSRV's
+`alerts.yml` post the embed, as described above. That embed is never updated: it
+stays in Discord even after the item sells, expires, or is cancelled.
+
+Setting `discord.enabled: true` in `config.yml` switches to a different mode: the
+bridge sends its own embed directly through DiscordSRV's JDA connection, then edits
+that same message when the auction's state changes, and can delete it after a delay.
+
+```yaml
+discord:
+  enabled: false
+
+  # Discord channel ID to post auction embeds in.
+  channel-id: "0"
+
+  # How often, in seconds, to check on tracked auctions for a status change.
+  check-interval-seconds: 10
+
+  # How long, in seconds, to leave the final embed (sold/expired/removed) before
+  # deleting it. Use 0 to never delete it automatically.
+  delete-after-seconds: 300
+```
+
+Notes:
+
+- This requires DiscordSRV to be installed and connected. If it is not, the bridge
+  logs a warning and the rest of the plugin keeps working normally.
+- The bot needs `Send Messages`, `Embed Links`, and `Manage Messages` (to delete)
+  permissions in the target channel.
+- Use either this feature **or** the `AuctionListedEvent` trigger in `alerts.yml`
+  for the auctions channel, not both, to avoid duplicate messages.
+- For bid auctions, a late bid that extends the auction's remaining time updates
+  the embed's `Ends` timestamp automatically.
+- Tracked auctions are saved to `plugins/EloadoaAuctionBridge/tracked-auctions.yml`
+  so tracking survives a server restart.
 
 ## How it works
 
@@ -268,6 +327,12 @@ me.elaineqheart.auctionHouse.data.ram.AuctionHouseStorage
 me.elaineqheart.auctionHouse.data.ram.ItemNote
 ```
 
+When `discord.enabled` is turned on, the bridge also reflects `ItemNote#isSold`,
+`ItemNote#getTimeLeft`, and `ItemNote#getBuyerName` to track each auction's status.
+It also compiles against DiscordSRV's relocated/shaded JDA classes
+(`github.scarsz.discordsrv.dependencies.jda.*`), which DiscordSRV does not treat as
+a stable public API and may change between DiscordSRV versions.
+
 A future AuctionHouse update may rename or change those classes and methods. Test the bridge after every AuctionHouse update.
 
 The bridge currently detects listings created through player commands. Listings created directly by another plugin, the console, or an AuctionHouse API are not detected by the command listener.
@@ -298,6 +363,10 @@ Check that:
 - DiscordSRV loaded successfully
 - `auctions` exists in DiscordSRV's `Channels:` map
 - the channel ID is correct
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
 - the alert is beneath the existing `Alerts:` section
 - YAML uses spaces rather than tabs
 - the server was fully restarted
