@@ -1,0 +1,16 @@
+# Commands that open your AuctionHouse plugin.
+command-labels:
+  - ah
+  - auctionhouse
+
+# Listing subcommands to announce.
+listing-subcommands:
+  - sell
+  - bid
+
+# AuctionHouse keeps new listings on a setup/waiting list for the number of
+# seconds in plugins/AuctionHouse/config.yml. The bridge reads that setting
+# automatically and adds this small safety delay before confirming the listing.
+extra-confirm-seconds: 1
+
+debug: false

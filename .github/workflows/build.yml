@@ -1,0 +1,29 @@
+name: Build plugin
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main", "master" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Build
+        run: mvn -B clean package
+
+      - name: Upload plugin jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: EloadoaAuctionBridge
+          path: target/EloadoaAuctionBridge-1.0.0.jar

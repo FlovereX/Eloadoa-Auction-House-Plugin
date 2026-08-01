@@ -1,0 +1,25 @@
+# Add "auctions" to the existing Channels line in plugins/DiscordSRV/config.yml:
+#
+# Channels: {"global": "SERVER_CHAT_ID", "auctions": "AUCTIONS_CHANNEL_ID"}
+#
+# Then add this entry under the existing Alerts: section in
+# plugins/DiscordSRV/alerts.yml. Use spaces only, never tabs.
+
+  - Trigger: dev.floverex.eloadoaauctionbridge.AuctionListedEvent
+    Channel: auctions
+    Embed:
+      Enabled: true
+      Color: "#F2A900"
+      Title:
+        Text: "New Auction Listing"
+      Description: |-
+        **Seller:** `${#event.getSellerName()}`
+        **Item:** `${#event.getItemName()}`
+        **Amount:** `${#event.getAmount()}`
+        **Price:** `$${#event.getPrice()}`
+        **Type:** `${#event.isBidAuction() ? "Bid auction" : "Buy now"}`
+
+        Use `/ah` in-game to view the listing.
+      Footer:
+        Text: "Auction ID: ${#event.getAuctionId()}"
+      Timestamp: true

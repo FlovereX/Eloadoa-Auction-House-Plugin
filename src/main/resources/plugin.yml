@@ -1,0 +1,8 @@
+name: EloadoaAuctionBridge
+version: '1.0.0'
+main: dev.floverex.eloadoaauctionbridge.EloadoaAuctionBridge
+api-version: '1.21'
+authors: [FlovereX]
+description: Confirms successful AuctionHouse listings for DiscordSRV alerts.
+depend: [AuctionHouse]
+loadbefore: [DiscordSRV]
