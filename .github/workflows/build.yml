@@ -1,13 +1,36 @@
-name: Build plugin
+name: Build and Release Plugin
 
 on:
-  workflow_dispatch:
   push:
-    branches: [ "main", "master" ]
+    branches:
+      - main
+    tags:
+      - "v*"
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release tag, such as v1.0.0. Leave blank to build only."
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eloadoa-auction-bridge-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
+    name: Build with Java 21
     runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -16,14 +39,113 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: "21"
           cache: maven
 
-      - name: Build
-        run: mvn -B clean package
+      - name: Build plugin
+        run: mvn --batch-mode --no-transfer-progress clean package
 
-      - name: Upload plugin jar
+      - name: Locate build and read version
+        id: project
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          PROJECT_VERSION="$(mvn help:evaluate \
+            -Dexpression=project.version \
+            -q \
+            -DforceStdout)"
+
+          JAR_PATH="$(find target \
+            -maxdepth 1 \
+            -type f \
+            -name '*.jar' \
+            ! -name 'original-*' \
+            -print \
+            -quit)"
+
+          if [[ -z "$JAR_PATH" ]]; then
+            echo "No plugin JAR was found in target/."
+            exit 1
+          fi
+
+          echo "version=$PROJECT_VERSION" >> "$GITHUB_OUTPUT"
+          echo "jar_path=$JAR_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Determine whether this is a release
+        id: release
+        shell: bash
+        env:
+          MANUAL_TAG: ${{ inputs.version }}
+          PROJECT_VERSION: ${{ steps.project.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          RELEASE_TAG=""
+
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            RELEASE_TAG="$GITHUB_REF_NAME"
+          elif [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && -n "${MANUAL_TAG:-}" ]]; then
+            RELEASE_TAG="$MANUAL_TAG"
+          fi
+
+          if [[ -n "$RELEASE_TAG" ]]; then
+            if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+              echo "Invalid release tag: $RELEASE_TAG"
+              echo "Use a tag such as v1.0.0 or v1.1.0-beta.1."
+              exit 1
+            fi
+
+            EXPECTED_TAG="v$PROJECT_VERSION"
+
+            if [[ "$RELEASE_TAG" != "$EXPECTED_TAG" ]]; then
+              echo "Release tag $RELEASE_TAG does not match pom.xml version $PROJECT_VERSION."
+              echo "Expected tag: $EXPECTED_TAG"
+              exit 1
+            fi
+          fi
+
+          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Create SHA-256 checksum
+        shell: bash
+        env:
+          JAR_PATH: ${{ steps.project.outputs.jar_path }}
+        run: sha256sum "$JAR_PATH" > "$JAR_PATH.sha256"
+
+      - name: Upload Actions artifact
         uses: actions/upload-artifact@v4
         with:
-          name: EloadoaAuctionBridge
-          path: target/EloadoaAuctionBridge-1.0.0.jar
+          name: EloadoaAuctionBridge-${{ steps.project.outputs.version }}
+          path: |
+            ${{ steps.project.outputs.jar_path }}
+            ${{ steps.project.outputs.jar_path }}.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Create or update GitHub Release
+        if: steps.release.outputs.tag != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          JAR_PATH: ${{ steps.project.outputs.jar_path }}
+          PROJECT_VERSION: ${{ steps.project.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload \
+              "$RELEASE_TAG" \
+              "$JAR_PATH" \
+              "$JAR_PATH.sha256" \
+              --clobber
+          else
+            gh release create \
+              "$RELEASE_TAG" \
+              "$JAR_PATH" \
+              "$JAR_PATH.sha256" \
+              --target "$GITHUB_SHA" \
+              --title "EloadoaAuctionBridge $PROJECT_VERSION" \
+              --generate-notes
+          fi
